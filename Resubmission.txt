@@ -1,9 +1,0 @@
-1) Great work giving 10 GB volume size but, it should be t3 instead of t2 in launch config.
-    The Instances already t3.medium (except the bastion host) and you can check the image in the repo (t3-intances.jpg)
-    and the parameters file (udagram-infra.json).
-    
-2) As per the rubric, You need to remove keyname property from the launch config. :v: 
-Since, we do not want any outside access to our instance, So that is why the keyname property should be removed.
-    I attached the keyname in the launch config so I can access the private web servers from the bastion host in the
-    public subnet, but I restricted the SSH access only from inside the VPC, Hence there's no public access.
-    you can find the security group image in the repo (security-group.jpg).
