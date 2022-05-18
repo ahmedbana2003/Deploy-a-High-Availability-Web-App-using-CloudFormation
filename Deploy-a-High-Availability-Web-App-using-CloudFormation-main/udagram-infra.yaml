@@ -1,0 +1,364 @@
+Description: Udagram's Infrastructure Script
+
+Parameters:
+
+    EnvironmentName:
+        Description: An environment name that will be prefixed to resource names
+        Type: String
+
+    VPCCIDR: 
+        Description: Please enter the IP range (CIDR notation) for this VPC
+        Type: String
+
+    FirstPublicSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+        Type: String
+
+    SecondPublicSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet in the second Availability Zone
+        Type: String
+
+    FirstPrivateSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+        Type: String
+
+    SecondPrivateSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+        Type: String
+
+    InstanceType:
+        Description: Intance type for the Web Servers undedr the ASG
+        Type: String
+
+Resources:
+
+    VPC: 
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: !Ref VPCCIDR
+            EnableDnsHostnames: true
+            Tags: 
+                - Key: Name 
+                  Value: !Ref EnvironmentName
+            
+    InternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+            Tags:
+                - Key: Name
+                  Value: !Ref EnvironmentName
+            
+    InternetGatewayAttachment:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties:
+            InternetGatewayId: !Ref InternetGateway
+            VpcId: !Ref VPC
+
+    FirstPublicSubnet: 
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+            CidrBlock: !Ref FirstPublicSubnetCIDR
+            MapPublicIpOnLaunch: true
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} First Public Subnet
+
+    SecondPublicSubnet: 
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 1, !GetAZs '' ]
+            CidrBlock: !Ref SecondPublicSubnetCIDR
+            MapPublicIpOnLaunch: true
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Second Public Subnet
+
+    FirstPrivateSubnet: 
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+            CidrBlock: !Ref FirstPrivateSubnetCIDR
+            MapPublicIpOnLaunch: false
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} First Private Subnet
+
+    SecondPrivateSubnet: 
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 1, !GetAZs '' ]
+            CidrBlock: !Ref SecondPrivateSubnetCIDR
+            MapPublicIpOnLaunch: false
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Second Private Subnet
+
+    FirstElasticIP:
+        Type: AWS::EC2::EIP
+        DependsOn: InternetGatewayAttachment
+        Properties: 
+            Domain: vpc
+
+    SecondElasticIP:
+        Type: AWS::EC2::EIP
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            Domain: vpc
+
+    FirstNatGW: 
+        Type: AWS::EC2::NatGateway
+        Properties: 
+            AllocationId: !GetAtt FirstElasticIP.AllocationId
+            SubnetId: !Ref FirstPublicSubnet
+
+    SecondNatGW: 
+        Type: AWS::EC2::NatGateway
+        Properties:
+            AllocationId: !GetAtt SecondElasticIP.AllocationId
+            SubnetId: !Ref SecondPublicSubnet
+
+    PublicRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Public Routes
+
+    DefaultPublicRoute: 
+        Type: AWS::EC2::Route
+        DependsOn: InternetGatewayAttachment
+        Properties: 
+            RouteTableId: !Ref PublicRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGateway
+
+    FirstPublicSubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref FirstPublicSubnet
+
+    SecondPublicSubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref SecondPublicSubnet
+    
+
+    FirstPrivateRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} First Private Routes
+
+    FirstDefaultPrivateRoute:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref FirstPrivateRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref FirstNatGW
+
+    FirstPrivateSubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        DependsOn: FirstNatGW
+        Properties:
+            RouteTableId: !Ref FirstPrivateRouteTable
+            SubnetId: !Ref FirstPrivateSubnet
+
+    SecondPrivateRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironmentName} Second Private Routes
+
+    SecondDefaultPrivateRoute:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref SecondPrivateRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref SecondNatGW
+
+    SecondPrivateSubnetRouteTableAssociation:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        DependsOn: SecondNatGW
+        Properties:
+            RouteTableId: !Ref SecondPrivateRouteTable
+            SubnetId: !Ref SecondPrivateSubnet
+
+    WebServersSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow Public HTTP access and SSH from the Bastion Host
+        VpcId: !Ref VPC
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref VPCCIDR
+        SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+    BastionHostSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow SSH access
+        VpcId: !Ref VPC
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+    LoadBalancerSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow HTTP access from the public and to the web servers
+        VpcId: !Ref VPC
+        SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+    S3ReadOnlyInstanceProfile: 
+      Type: "AWS::IAM::InstanceProfile"
+      Properties:
+        Roles: 
+          - UdagramS3ReadOnlyAccess
+
+    BastionHost:
+      Type: AWS::EC2::Instance
+      DependsOn: InternetGateway
+      Properties: 
+        ImageId: "ami-04505e74c0741db8d"
+        InstanceType: "t2.micro"
+        KeyName: "omega"
+        NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+            - Ref: "BastionHostSecurityGroup"
+          SubnetId: 
+            Ref: "FirstPublicSubnet"
+
+    WebServersLaunchConfiguration: 
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+            UserData:
+                Fn::Base64: !Sub |
+                    #! /bin/bash
+                    apt update -y
+                    apt install awscli -y
+                    apt install apache2 -y
+                    systemctl start apache2.service
+                    cd /var/www/html
+                    aws s3 cp s3://udagram-static-files/index.html /var/www/html/index.html
+                    echo $(hostname) >> /var/www/html/index.html
+            ImageId: ami-04505e74c0741db8d
+            KeyName: omega
+            IamInstanceProfile: !Ref S3ReadOnlyInstanceProfile
+            SecurityGroups:
+            -   Ref: WebServersSecurityGroup
+            InstanceType: !Ref 'InstanceType'
+            BlockDeviceMappings:
+            -   DeviceName: "/dev/sdk"
+                Ebs:
+                    VolumeSize: '10'
+
+    WebServersTargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            HealthCheckIntervalSeconds: 5
+            HealthCheckPath: /
+            HealthCheckProtocol: HTTP
+            HealthCheckTimeoutSeconds: 4
+            HealthyThresholdCount: 2
+            Port: 80
+            Protocol: HTTP
+            UnhealthyThresholdCount: 5
+            VpcId: !Ref VPC
+
+    WebServersASG:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+            VPCZoneIdentifier:  
+            - !Ref FirstPrivateSubnet
+            - !Ref SecondPrivateSubnet 
+            LaunchConfigurationName:
+                Ref: WebServersLaunchConfiguration
+            MinSize: '4'
+            MaxSize: '6'
+            TargetGroupARNs:
+            -   Ref: WebServersTargetGroup
+
+    WebServersLB:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            SecurityGroups:
+            - Ref: LoadBalancerSecurityGroup
+            Subnets:
+            - !Ref FirstPublicSubnet
+            - !Ref SecondPublicSubnet
+    Listener:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            DefaultActions:
+            -   Type: forward
+                TargetGroupArn:
+                    Ref: WebServersTargetGroup
+            LoadBalancerArn:
+                Ref: WebServersLB
+            Port: 80
+            Protocol: HTTP
+
+    LBListenerRule:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            Actions:
+            -   Type: forward
+                TargetGroupArn: !Ref 'WebServersTargetGroup'
+            Conditions:
+            -   Field: path-pattern
+                Values: [/]
+            ListenerArn: !Ref 'Listener'
+            Priority: 1
+
+Outputs: 
+
+    WebServersLoadBalancerDNSName:
+        Description: Public URL of the Load Balancer
+        Value: !Join [ "", [ 'http://', !GetAtt WebServersLB.DNSName ]]
+    
+    BastionHostPublicIP:
+      Description: Public IPV4 for the bastion host to SSH into
+      Value: !GetAtt BastionHost.PublicIp
